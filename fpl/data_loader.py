@@ -73,7 +73,8 @@ def load_all_data() -> Dict[str, Any]:
                 player.get('id'), 
                 player.get('team'), 
                 player.get('web_name'), 
-                player.get('element_type')
+                player.get('element_type'),
+                player.get('code')
             ) 
             for player in bootstrap_json.get('elements', [])
         }

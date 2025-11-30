@@ -51,7 +51,7 @@ def get_team_players(team_id: int, gameweek: int, all_players_map: dict[int, Pla
             player_id = pick.get('element')
             if player_id is not None:
                 player_info = all_players_map[player_id]
-                players.append(Player(player_id, player_info.club_id, player_info.name, player_info.element_type))
+                players.append(Player(player_id, player_info.club_id, player_info.name, player_info.element_type, player_info.code))
         
         return players
     else:

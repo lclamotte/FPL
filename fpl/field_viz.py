@@ -1,38 +1,10 @@
-import io
-from typing import List
-
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.patches import Rectangle, Arc, Circle
+import plotly.graph_objects as go
 import streamlit as st
-
+from typing import List
 from classes import Player, LivePlayerData
 
-
-def get_formation(players: List[Player]) -> tuple:
-    """Determine formation based on player positions (element_type).
-    
-    Returns tuple of (defenders, midfielders, forwards)
-    Element types: 1=GK, 2=DEF, 3=MID, 4=FWD
-    """
-    defenders = sum(1 for p in players if p.element_type == 2)
-    midfielders = sum(1 for p in players if p.element_type == 3)
-    forwards = sum(1 for p in players if p.element_type == 4)
-    
-    return (defenders, midfielders, forwards)
-
-
 def get_player_positions(players: List[Player], field_height: float = 10, field_width: float = 7) -> dict:
-    """Calculate x, y positions for each player on the field.
-    
-    Args:
-        players: List of players to position
-        field_height: Height of the field (vertical axis)
-        field_width: Width of the field (horizontal axis)
-    
-    Returns:
-        Dict mapping player id to (x, y) coordinates
-    """
+    """Calculate x, y positions for each player on the field."""
     positions = {}
     
     # Group players by position
@@ -43,11 +15,11 @@ def get_player_positions(players: List[Player], field_height: float = 10, field_
     
     # Y positions (vertical) - from bottom to top
     gk_y = 0.5
-    def_y = 2.0
-    mid_y = 5.0
-    fwd_y = 8.0
+    def_y = 2.5
+    mid_y = 5.5
+    fwd_y = 8.5
     
-    # Position goalkeepers (should be 1)
+    # Position goalkeepers
     for i, player in enumerate(gk):
         positions[player.id] = (field_width / 2, gk_y)
     
@@ -77,173 +49,217 @@ def get_player_positions(players: List[Player], field_height: float = 10, field_
     
     return positions
 
-
-def draw_soccer_field(ax, field_height: float = 10, field_width: float = 7):
-    """Draw a soccer field on the given matplotlib axis."""
-    
-    # Field background
-    field = Rectangle((0, 0), field_width, field_height, 
-                      facecolor='#2d5016', edgecolor='white', linewidth=2)
-    ax.add_patch(field)
-    
-    # Center line
-    ax.plot([0, field_width], [field_height/2, field_height/2], 'white', linewidth=2)
-    
-    # Center circle
-    center_circle = Circle((field_width/2, field_height/2), 0.8, 
-                           fill=False, edgecolor='white', linewidth=2)
-    ax.add_patch(center_circle)
-    
-    # Center spot
-    center_spot = Circle((field_width/2, field_height/2), 0.08, 
-                        facecolor='white', edgecolor='white')
-    ax.add_patch(center_spot)
-    
-    # Penalty box (bottom)
-    penalty_box_bottom = Rectangle((field_width/2 - 2, 0), 4, 1.5,
-                                   fill=False, edgecolor='white', linewidth=2)
-    ax.add_patch(penalty_box_bottom)
-    
-    # Goal box (bottom)
-    goal_box_bottom = Rectangle((field_width/2 - 1, 0), 2, 0.6,
-                                fill=False, edgecolor='white', linewidth=2)
-    ax.add_patch(goal_box_bottom)
-    
-    # Penalty box (top)
-    penalty_box_top = Rectangle((field_width/2 - 2, field_height - 1.5), 4, 1.5,
-                                fill=False, edgecolor='white', linewidth=2)
-    ax.add_patch(penalty_box_top)
-    
-    # Goal box (top)
-    goal_box_top = Rectangle((field_width/2 - 1, field_height - 0.6), 2, 0.6,
-                             fill=False, edgecolor='white', linewidth=2)
-    ax.add_patch(goal_box_top)
-    
-    # Penalty arc (bottom)
-    penalty_arc_bottom = Arc((field_width/2, 1.1), 1.5, 1.5, 
-                            angle=0, theta1=0, theta2=180,
-                            fill=False, edgecolor='white', linewidth=2)
-    ax.add_patch(penalty_arc_bottom)
-    
-    # Penalty arc (top)
-    penalty_arc_top = Arc((field_width/2, field_height - 1.1), 1.5, 1.5,
-                         angle=0, theta1=180, theta2=360,
-                         fill=False, edgecolor='white', linewidth=2)
-    ax.add_patch(penalty_arc_top)
-    
-    # Set axis properties
-    ax.set_xlim(-0.5, field_width + 0.5)
-    ax.set_ylim(-0.5, field_height + 0.5)
-    ax.set_aspect('equal')
-    ax.axis('off')
-
-
-def get_performance_color(points: int) -> str:
-    """Get color based on player's performance (points)."""
-    if points >= 10:
-        return '#22c55e'  # Green - excellent
-    elif points >= 6:
-        return '#3b82f6'  # Blue - good
-    elif points >= 4:
-        return '#eab308'  # Yellow - average
-    elif points >= 2:
-        return '#f97316'  # Orange - below average
-    else:
-        return '#6b7280'  # Gray - poor
-
-
-def render_soccer_field(team_xi: List[Player], live_player_data_map: dict, 
-                       element_types_map: dict, team_name: str = ""):
-    """Render a soccer field with players positioned on it.
+def get_performance_color(is_finished: bool, is_started: bool) -> str:
+    """Get color based on match status.
     
     Args:
-        team_xi: List of 11 players (starting XI)
-        live_player_data_map: Map of player id to LivePlayerData
-        element_types_map: Map of element_type id to ElementType
-        team_name: Name of the team
+        is_finished: Whether the match is finished
+        is_started: Whether the match has started
     
     Returns:
-        matplotlib figure object
+        Color hex code for the player badge
     """
+    if is_finished:
+        return '#22c55e'  # Green - Completed (match is over)
+    elif is_started:
+        return '#eab308'  # Yellow - Live (match ongoing)
+    else:
+        return '#94a3b8'  # Light Grey - Not Started
+
+import requests
+
+@st.cache_data(ttl=3600)  # Cache image checks for 1 hour
+def get_player_image_url(code: int) -> str:
+    """Get valid player image URL or fallback to placeholder."""
+    url = f"https://resources.premierleague.com/premierleague/photos/players/110x140/p{code}.png"
+    try:
+        response = requests.head(url, timeout=1)
+        if response.status_code == 200:
+            return url
+    except:
+        pass
+    return "https://resources.premierleague.com/premierleague/photos/players/110x140/Photo-Missing.png"
+
+def render_soccer_field(team_xi: List[Player], live_player_data_map: dict, 
+                       element_types_map: dict, team_name: str = "", club_fixture_status_map: dict = None):
+    """Render a soccer field with players positioned on it using Plotly.
+    
+    Args:
+        club_fixture_status_map: Dict mapping club_id to fixture status dict with 'finished' and 'started' booleans
+    """
+    
     field_height = 10
     field_width = 7
     
-    # Create figure and axis
-    fig, ax = plt.subplots(figsize=(8, 11), facecolor='#1e293b')
+    fig = go.Figure()
     
-    # Draw the field
-    draw_soccer_field(ax, field_height, field_width)
+    # Draw Field (Green Background)
+    fig.add_shape(type="rect",
+        x0=0, y0=0, x1=field_width, y1=field_height,
+        line=dict(color="white", width=2),
+        fillcolor="#2d5016",
+        layer="below"
+    )
     
-    # Get player positions
+    # Center Line
+    fig.add_shape(type="line",
+        x0=0, y0=field_height/2, x1=field_width, y1=field_height/2,
+        line=dict(color="white", width=2)
+    )
+    
+    # Center Circle
+    fig.add_shape(type="circle",
+        x0=field_width/2 - 0.8, y0=field_height/2 - 0.8,
+        x1=field_width/2 + 0.8, y1=field_height/2 + 0.8,
+        line=dict(color="white", width=2)
+    )
+    
+    # Penalty Areas
+    for y_base, direction in [(0, 1), (field_height, -1)]:
+        # Penalty Box
+        fig.add_shape(type="rect",
+            x0=field_width/2 - 2, y0=y_base,
+            x1=field_width/2 + 2, y1=y_base + (1.5 * direction),
+            line=dict(color="white", width=2)
+        )
+        # Goal Box
+        fig.add_shape(type="rect",
+            x0=field_width/2 - 1, y0=y_base,
+            x1=field_width/2 + 1, y1=y_base + (0.6 * direction),
+            line=dict(color="white", width=2)
+        )
+    
+    # Get positions
     positions = get_player_positions(team_xi, field_height, field_width)
     
-    # Draw each player
+    # Add Players
     for player in team_xi:
         if player.id not in positions:
             continue
             
         x, y = positions[player.id]
-        
-        # Get player stats
         live_data = live_player_data_map.get(player.id)
         points = live_data.points if live_data else 0
         goals = live_data.goals if live_data else 0
         assists = live_data.assists if live_data else 0
+        minutes = live_data.minutes if live_data else 0
         
-        # Get performance color
-        color = get_performance_color(points)
+        # Determine player's fixture status from their club
+        player_fixture_finished = False
+        player_fixture_started = False
+        if club_fixture_status_map and player.club_id in club_fixture_status_map:
+            player_fixture_finished = club_fixture_status_map[player.club_id].get('finished', False)
+            player_fixture_started = club_fixture_status_map[player.club_id].get('started', False)
         
-        # Draw player circle
-        player_circle = Circle((x, y), 0.25, facecolor=color, 
-                              edgecolor='white', linewidth=2, zorder=10)
-        ax.add_patch(player_circle)
+        color = get_performance_color(player_fixture_finished, player_fixture_started)
         
-        # Player name (shortened if too long)
-        display_name = player.name if len(player.name) <= 12 else player.name[:10] + '..'
-        ax.text(x, y - 0.5, display_name, ha='center', va='top',
-               fontsize=8, fontweight='bold', color='white',
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='black', 
-                        alpha=0.7, edgecolor='none'))
+        # Player Image
+        if hasattr(player, 'code'):
+            image_url = get_player_image_url(player.code)
+            fig.add_layout_image(
+                dict(
+                    source=image_url,
+                    x=x,
+                    y=y,
+                    xref="x",
+                    yref="y",
+                    sizex=1.2,
+                    sizey=1.2,
+                    xanchor="center",
+                    yanchor="middle",
+                    layer="above"
+                )
+            )
         
-        # Stats text
-        stats_text = f"{points}pts"
-        if goals > 0:
-            stats_text += f" | {goals}G"
-        if assists > 0:
-            stats_text += f" | {assists}A"
-            
-        ax.text(x, y + 0.5, stats_text, ha='center', va='bottom',
-               fontsize=7, color='white',
-               bbox=dict(boxstyle='round,pad=0.3', facecolor='black',
-                        alpha=0.7, edgecolor='none'))
+        # Player Marker (invisible but used for hover)
+        hover_text = (
+            f"<b>{player.name}</b><br>"
+            f"Points: {points}<br>"
+            f"Goals: {goals}<br>"
+            f"Assists: {assists}<br>"
+            f"Minutes: {minutes}"
+        )
+        
+        fig.add_trace(go.Scatter(
+            x=[x], y=[y],
+            mode='markers',
+            marker=dict(size=40, color='rgba(0,0,0,0)'), # Invisible marker covering the image
+            hoverinfo='text',
+            hovertext=hover_text,
+            showlegend=False
+        ))
+        
+        # Points Badge (Circle with number)
+        fig.add_trace(go.Scatter(
+            x=[x + 0.4], y=[y + 0.4],
+            mode='markers+text',
+            marker=dict(size=24, color=color, line=dict(color='white', width=1)),
+            text=[str(points)],
+            textfont=dict(color='white', size=12, family="Arial Black"),
+            hoverinfo='skip',
+            showlegend=False
+        ))
+        
+        # Name Label
+        display_name = player.name.split()[-1] if len(player.name) > 10 else player.name
+        fig.add_trace(go.Scatter(
+            x=[x], y=[y - 0.7],
+            mode='text',
+            text=[display_name],
+            textfont=dict(color='white', size=10, family="Arial"),
+            textposition="bottom center",
+            hoverinfo='skip',
+            showlegend=False
+        ))
+
+    # Legend for Colors
+    legend_items = [
+        ("Completed", "#22c55e"),
+        ("Live/Pending", "#eab308"),
+        ("Not Played", "#94a3b8")
+    ]
     
-    # Add team name title
-    if team_name:
-        ax.text(field_width/2, field_height + 0.3, team_name,
-               ha='center', va='bottom', fontsize=14, fontweight='bold',
-               color='white')
-    
-    # Get formation for subtitle
-    formation = get_formation(team_xi)
-    formation_text = f"{formation[0]}-{formation[1]}-{formation[2]}"
-    ax.text(field_width/2, -0.3, formation_text,
-           ha='center', va='top', fontsize=10, color='white', style='italic')
-    
-    plt.tight_layout()
+    for i, (label, color) in enumerate(legend_items):
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='markers',
+            marker=dict(size=10, color=color),
+            name=label,
+            showlegend=True
+        ))
+
+    # Layout Configuration
+    fig.update_layout(
+        title=dict(
+            text=team_name,
+            y=0.98,
+            x=0.5,
+            xanchor='center',
+            yanchor='top',
+            font=dict(size=20, color='white')
+        ),
+        xaxis=dict(range=[-0.5, field_width + 0.5], showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(range=[-0.5, field_height + 0.5], showgrid=False, zeroline=False, visible=False),
+        plot_bgcolor='#1e293b',
+        paper_bgcolor='#1e293b',
+        width=500,
+        height=750, # Increased height to accommodate legend
+        margin=dict(l=10, r=10, t=40, b=80), # Increased bottom margin
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.05, # Position below the chart
+            xanchor="center",
+            x=0.5,
+            font=dict(color="white")
+        ),
+        dragmode=False
+    )
     
     return fig
 
-
 def display_field_in_streamlit(team_xi: List[Player], live_player_data_map: dict,
-                               element_types_map: dict, team_name: str = ""):
-    """Helper function to display the field visualization in Streamlit.
-    
-    Args:
-        team_xi: List of 11 players (starting XI)
-        live_player_data_map: Map of player id to LivePlayerData
-        element_types_map: Map of element_type id to ElementType
-        team_name: Name of the team
-    """
-    fig = render_soccer_field(team_xi, live_player_data_map, element_types_map, team_name)
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)  # Clean up to avoid memory leaks
+                               element_types_map: dict, team_name: str = "", club_fixture_status_map: dict = None):
+    """Helper function to display the field visualization in Streamlit."""
+    fig = render_soccer_field(team_xi, live_player_data_map, element_types_map, team_name, club_fixture_status_map)
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})

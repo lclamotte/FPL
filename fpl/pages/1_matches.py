@@ -1,61 +1,13 @@
 from typing import List
 
-import pandas as pd
+import random
 import streamlit as st
 
 from classes import Club, ElementType, Fixture, FplMatchup, FplTeam, LivePlayerData, Player
 from field_viz import display_field_in_streamlit
 from data_loader import load_all_data
 
-def render_team_table(team_xi: List[Player], element_types_map, live_player_data_map, live_fixtures, all_clubs_map):
-    columns = ["Player", "Pts", "G", "A", "Mins", "Status"]
-    data = []
-    for player in team_xi:
-        live_player_data = live_player_data_map.get(player.id)
-        if not live_player_data:
-            data.append([player.name, 0, 0, 0, 0, "Unknown"])
-            continue
-            
-        name_cell = f"{player.name} ({element_types_map[player.element_type].position_name})"
-        points_cell = live_player_data.points
-        goals_cell = live_player_data.goals
-        assists_cell = live_player_data.assists
-        minutes_cell = live_player_data.minutes
-        
-        game_status_cell = ''
-        for fixture in live_fixtures:
-            if not (fixture.home_team == player.club_id or fixture.away_team == player.club_id):
-                continue
-            
-            opponent_id = fixture.away_team if fixture.home_team == player.club_id else fixture.home_team
-            opponent_name = all_clubs_map[opponent_id].name
-            
-            if not fixture.started:
-                game_status_cell = f"vs {opponent_name} (Upcoming)"
-            elif fixture.finished:
-                game_status_cell = f"vs {opponent_name} (FT)"
-            else:
-                game_status_cell = f"vs {opponent_name} (Live)"
-            break
-            
-        data.append([name_cell, points_cell, goals_cell, assists_cell, minutes_cell, game_status_cell])
-        
-    df = pd.DataFrame(data, columns=columns)
-    st.dataframe(df, hide_index=True, height = 12 * 35 + 3)  # 11 rows + 1 header, 35 for row height, plus 3 for borders
-    
-    st.dataframe(
-        df, 
-        hide_index=True, 
-        use_container_width=True,
-        column_config={
-            "Player": st.column_config.TextColumn("Player", width="medium"),
-            "Pts": st.column_config.NumberColumn("Pts", format="%d"),
-            "G": st.column_config.NumberColumn("G", format="%d"),
-            "A": st.column_config.NumberColumn("A", format="%d"),
-            "Mins": st.column_config.NumberColumn("Mins", format="%d"),
-            "Status": st.column_config.TextColumn("Status", width="medium"),
-        }
-    )
+
 
 def generate_match_commentary(team1: FplTeam, team2: FplTeam, team1_points: int, team2_points: int, 
                               team1_xi: List[Player], team2_xi: List[Player], 
@@ -227,9 +179,6 @@ def main():
     current_gameweek = data['current_gameweek']
     st.caption(f"Gameweek {current_gameweek}")
     
-    # View mode toggle
-    view_mode = st.radio("View Mode", ["Field View", "Table View"], horizontal=True, index=0)
-    
     # Get data from shared loader
     element_types_map = data['element_types_map']
     all_clubs_map = data['all_clubs_map']
@@ -248,7 +197,7 @@ def main():
             home_score=fixture.get('team_h_score'),
             away_score=fixture.get('team_a_score'),
             started=fixture.get('started'),
-            finished=fixture.get('finished')
+            finished_provisional=fixture.get('finished_provisional')
         ) for fixture in live_fixtures_json]
     
     # Get league matchups
@@ -273,6 +222,10 @@ def main():
         team1_xi = sorted(fpl_team_1.players[:11], key=lambda p: p.element_type, reverse=True)
         team2_xi = sorted(fpl_team_2.players[:11], key=lambda p: p.element_type, reverse=True)
         
+        # Calculate actual scores from live player data (more up-to-date than matchup data)
+        team1_points = sum(live_player_data_map.get(p.id).points if live_player_data_map.get(p.id) else 0 for p in team1_xi)
+        team2_points = sum(live_player_data_map.get(p.id).points if live_player_data_map.get(p.id) else 0 for p in team2_xi)
+        
         with st.container(border=True):
             # Match Header
             col1, col2, col3 = st.columns([4, 2, 4])
@@ -282,7 +235,7 @@ def main():
                 st.markdown(f"<p style='text-align: center; color: gray;'>{fpl_team_1.manager_name}</p>", unsafe_allow_html=True)
                 
             with col2:
-                st.markdown(f"<h1 style='text-align: center;'>{matchup.team_1_points} - {matchup.team_2_points}</h1>", unsafe_allow_html=True)
+                st.markdown(f"<h1 style='text-align: center;'>{team1_points} - {team2_points}</h1>", unsafe_allow_html=True)
                 
             with col3:
                 st.markdown(f"<h3 style='text-align: center;'>{fpl_team_2.team_name}</h3>", unsafe_allow_html=True)
@@ -293,7 +246,7 @@ def main():
             # Generate and display satirical commentary
             commentary = generate_match_commentary(
                 fpl_team_1, fpl_team_2, 
-                matchup.team_1_points, matchup.team_2_points,
+                team1_points, team2_points,
                 team1_xi, team2_xi,
                 live_player_data_map, element_types_map,
                 live_fixtures
@@ -301,23 +254,31 @@ def main():
             st.markdown(f"**Match Commentary:** {commentary}")
             st.divider()
             
-            # Team Details
-            if view_mode == "Field View":
-                # Display fields side by side
-                c1, c2 = st.columns(2)
-                with c1:
-                    display_field_in_streamlit(team1_xi, live_player_data_map, 
-                                             element_types_map, fpl_team_1.team_name)
-                with c2:
-                    display_field_in_streamlit(team2_xi, live_player_data_map,
-                                             element_types_map, fpl_team_2.team_name)
-            else:
-                # Display tables
-                c1, c2 = st.columns(2)
-                with c1:
-                    render_team_table(team1_xi, element_types_map, live_player_data_map, live_fixtures, all_clubs_map)
-                with c2:
-                    render_team_table(team2_xi, element_types_map, live_player_data_map, live_fixtures, all_clubs_map)
+            # Display fields side by side
+            c1, c2 = st.columns(2)
+            
+            # Create a mapping of club_id to fixture status for color coding
+            club_fixture_status_map = {}
+            for fixture in live_fixtures:
+                # For home team
+                if fixture.home_team not in club_fixture_status_map:
+                    club_fixture_status_map[fixture.home_team] = {
+                        'finished': fixture.finished_provisional,
+                        'started': fixture.started
+                    }
+                # For away team
+                if fixture.away_team not in club_fixture_status_map:
+                    club_fixture_status_map[fixture.away_team] = {
+                        'finished': fixture.finished_provisional,
+                        'started': fixture.started
+                    }
+            
+            with c1:
+                display_field_in_streamlit(team1_xi, live_player_data_map, 
+                                         element_types_map, fpl_team_1.team_name, club_fixture_status_map)
+            with c2:
+                display_field_in_streamlit(team2_xi, live_player_data_map,
+                                         element_types_map, fpl_team_2.team_name, club_fixture_status_map)
 
 if __name__ == "__main__":
     main()
