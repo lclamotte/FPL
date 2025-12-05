@@ -9,88 +9,7 @@ import dateutil.tz
 from classes import Club, ElementType, Fixture, FplMatchup, FplTeam, LivePlayerData, Player
 from data_loader import load_all_data
 from field_viz import display_field_in_streamlit
-
-def calculate_league_table(teams, fixtures):
-    """Calculate the league table from fixtures."""
-    # Initialize table dictionary
-    table = {team['id']: {
-        'Logo': f"https://resources.premierleague.com/premierleague/badges/50/t{team['code']}.png",
-        'Team': team['name'],
-        'P': 0,
-        'W': 0,
-        'D': 0,
-        'L': 0,
-        'GF': 0,
-        'GA': 0,
-        'GD': 0,
-        'Pts': 0,
-        'Form': [] # Store last 5 results
-    } for team in teams}
-    
-    for fixture in fixtures:
-        if fixture['finished_provisional']:
-            home_id = fixture['team_h']
-            away_id = fixture['team_a']
-            home_score = fixture['team_h_score']
-            away_score = fixture['team_a_score']
-            
-            # Update Home Team
-            table[home_id]['P'] += 1
-            table[home_id]['GF'] += home_score
-            table[home_id]['GA'] += away_score
-            table[home_id]['GD'] += (home_score - away_score)
-            
-            # Update Away Team
-            table[away_id]['P'] += 1
-            table[away_id]['GF'] += away_score
-            table[away_id]['GA'] += home_score
-            table[away_id]['GD'] += (away_score - home_score)
-            
-            if home_score > away_score:
-                table[home_id]['W'] += 1
-                table[home_id]['Pts'] += 3
-                table[home_id]['Form'].append('W')
-                
-                table[away_id]['L'] += 1
-                table[away_id]['Form'].append('L')
-            elif away_score > home_score:
-                table[away_id]['W'] += 1
-                table[away_id]['Pts'] += 3
-                table[away_id]['Form'].append('W')
-                
-                table[home_id]['L'] += 1
-                table[home_id]['Form'].append('L')
-            else:
-                table[home_id]['D'] += 1
-                table[home_id]['Pts'] += 1
-                table[home_id]['Form'].append('D')
-                
-                table[away_id]['D'] += 1
-                table[away_id]['Pts'] += 1
-                table[away_id]['Form'].append('D')
-
-    # Convert to DataFrame
-    df = pd.DataFrame(table.values())
-    
-    # Sort by Points, then GD, then GF
-    df = df.sort_values(by=['Pts', 'GD', 'GF'], ascending=False).reset_index(drop=True)
-    
-    # Add Position column
-    df.index += 1
-    df.index.name = 'Pos'
-    df = df.reset_index()
-    
-    # Format Form column to show last 5 with emojis
-    def format_form(form_list):
-        last_5 = form_list[-5:]
-        return "".join(['✅' if x == 'W' else '➖' if x == 'D' else '❌' for x in last_5])
-        
-    df['Form'] = df['Form'].apply(format_form)
-    
-    # Reorder columns
-    df = df[['Pos', 'Logo', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form']]
-    
-    return df
+from utils import generate_match_commentary
 
 @st.cache_data(ttl=60)
 def get_fixtures():
@@ -104,18 +23,19 @@ def get_fixtures():
         return []
 
 def main():
-    st.set_page_config(page_title="Premier League Dashboard", page_icon="⚽", layout="wide")
+    st.set_page_config(page_title="Matches", page_icon="⚽", layout="wide")
+    
+    # Load all shared data first to get gameweek
+    data = load_all_data()
+    current_gameweek = data['current_gameweek']
     
     col1, col2 = st.columns([6, 1])
     with col1:
-        st.title("⚽ Premier League Dashboard")
+        st.title(f"⚽ Matches - Gameweek {current_gameweek}")
     with col2:
         if st.button("Refresh Data"):
             st.cache_data.clear()
             st.rerun()
-    
-    # Load all shared data
-    data = load_all_data()
     
     teams = data['teams']
     
@@ -127,34 +47,117 @@ def main():
         return
 
     # Create tabs
-    tab1, tab2 = st.tabs(["League Table", "Matches"])
+    tab1, tab2 = st.tabs(["Fantasy Head-to-Head", "Premier League Games"])
     
     with tab1:
-        st.header("League Table")
-        league_table = calculate_league_table(teams, fixtures)
         
-        st.dataframe(
-            league_table,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Logo": st.column_config.ImageColumn("Club", width="small"),
-                "Team": st.column_config.TextColumn("Team", width="medium"),
-                "Pos": st.column_config.NumberColumn("Pos", width="small"),
-                "P": st.column_config.NumberColumn("P", width="small"),
-                "W": st.column_config.NumberColumn("W", width="small"),
-                "D": st.column_config.NumberColumn("D", width="small"),
-                "L": st.column_config.NumberColumn("L", width="small"),
-                "GF": st.column_config.NumberColumn("GF", width="small"),
-                "GA": st.column_config.NumberColumn("GA", width="small"),
-                "GD": st.column_config.NumberColumn("GD", width="small"),
-                "Pts": st.column_config.NumberColumn("Pts", width="small"),
-                "Form": st.column_config.TextColumn("Form", width="medium"),
-            }
-        )
+        # Get data from shared loader
+        element_types_map = data['element_types_map']
+        all_clubs_map = data['all_clubs_map']
+        all_players_map = data['all_players_map']
+        live_player_data_map = data['live_player_data_map']
+        fpl_team_map = data['fpl_team_map']
         
+        # Get live fixtures from live_json
+        live_json = data['live_json']
+        live_fixtures_json = live_json.get('fixtures', [])
+        
+        live_fixtures = [
+            Fixture(
+                home_team=fixture.get('team_h'),
+                away_team=fixture.get('team_a'),
+                home_score=fixture.get('team_h_score'),
+                away_score=fixture.get('team_a_score'),
+                started=fixture.get('started'),
+                finished_provisional=fixture.get('finished_provisional')
+            ) for fixture in live_fixtures_json]
+        
+        # Get league matchups
+        league_json = data['league_json']
+        matches = league_json.get('matches', [])
+        fpl_matchups = []
+        for match in matches:
+            if match.get('event') == current_gameweek:
+                fpl_matchups.append(FplMatchup(match.get('league_entry_1'), match.get('league_entry_1_points'), match.get('league_entry_2'), match.get('league_entry_2_points')))
+    
+        if not fpl_matchups:
+            st.info("No matches found for this gameweek.")
+        else:
+            for matchup in fpl_matchups:
+                fpl_team_1 = fpl_team_map.get(int(matchup.fpl_team_id_1))
+                fpl_team_2 = fpl_team_map.get(int(matchup.fpl_team_id_2))
+                
+                if not fpl_team_1 or not fpl_team_2:
+                    continue
+                    
+                team1_xi = sorted(fpl_team_1.players[:11], key=lambda p: p.element_type, reverse=True)
+                team2_xi = sorted(fpl_team_2.players[:11], key=lambda p: p.element_type, reverse=True)
+                
+                # Get Bench Players (remaining players)
+                team1_bench = fpl_team_1.players[11:]
+                team2_bench = fpl_team_2.players[11:]
+                
+                # Calculate actual scores from live player data (more up-to-date than matchup data)
+                team1_points = sum(live_player_data_map.get(p.id).points if live_player_data_map.get(p.id) else 0 for p in team1_xi)
+                team2_points = sum(live_player_data_map.get(p.id).points if live_player_data_map.get(p.id) else 0 for p in team2_xi)
+                
+                with st.container(border=True):
+                    # Match Header
+                    col1, col2, col3 = st.columns([4, 2, 4])
+                    
+                    with col1:
+                        st.markdown(f"<h3 style='text-align: center;'>{fpl_team_1.team_name}</h3>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='text-align: center; color: gray;'>{fpl_team_1.manager_name}</p>", unsafe_allow_html=True)
+                        
+                    with col2:
+                        st.markdown(f"<h1 style='text-align: center;'>{team1_points} - {team2_points}</h1>", unsafe_allow_html=True)
+                        
+                    with col3:
+                        st.markdown(f"<h3 style='text-align: center;'>{fpl_team_2.team_name}</h3>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='text-align: center; color: gray;'>{fpl_team_2.manager_name}</p>", unsafe_allow_html=True)
+                    
+                    st.divider()
+                    
+                    # Generate and display satirical commentary
+                    commentary = generate_match_commentary(
+                        fpl_team_1, fpl_team_2, 
+                        team1_points, team2_points,
+                        team1_xi, team2_xi,
+                        live_player_data_map, element_types_map,
+                        live_fixtures
+                    )
+                    st.markdown(f"**Match Commentary:** {commentary}")
+                    st.divider()
+                    
+                    # Display fields side by side
+                    c1, c2 = st.columns(2)
+                    
+                    # Create a mapping of club_id to fixture status for color coding
+                    club_fixture_status_map = {}
+                    for fixture in live_fixtures:
+                        # For home team
+                        if fixture.home_team not in club_fixture_status_map:
+                            club_fixture_status_map[fixture.home_team] = {
+                                'finished': fixture.finished_provisional,
+                                'started': fixture.started
+                            }
+                        # For away team
+                        if fixture.away_team not in club_fixture_status_map:
+                            club_fixture_status_map[fixture.away_team] = {
+                                'finished': fixture.finished_provisional,
+                                'started': fixture.started
+                            }
+                    
+                    with c1:
+                        display_field_in_streamlit(team1_xi, live_player_data_map, 
+                                                 element_types_map, fpl_team_1.team_name, 
+                                                 club_fixture_status_map, team1_bench)
+                    with c2:
+                        display_field_in_streamlit(team2_xi, live_player_data_map,
+                                                 element_types_map, fpl_team_2.team_name, 
+                                                 club_fixture_status_map, team2_bench)
+
     with tab2:
-        st.header("Matches")
         
         # Get data from shared loader
         current_gw = data['current_gameweek']

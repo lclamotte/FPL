@@ -1,13 +1,16 @@
 class LivePlayerData:
-    def __init__(self, id, points, goals, assists, minutes):
+    def __init__(self, id, points, goals, assists, minutes, yellow_cards=0, red_cards=0, bonus=0):
         self.id = id
         self.points = points
         self.goals = goals
         self.assists = assists
         self.minutes = minutes
+        self.yellow_cards = yellow_cards
+        self.red_cards = red_cards
+        self.bonus = bonus
         
     def __repr__(self):
-        return f"LivePlayerData(id={self.id}, points={self.points}, goals={self.goals}, assists={self.assists}, minutes={self.minutes})"
+        return f"LivePlayerData(id={self.id}, points={self.points}, goals={self.goals}, assists={self.assists}, minutes={self.minutes}, yellow_cards={self.yellow_cards}, red_cards={self.red_cards}, bonus={self.bonus})"
 
 class Player:
     def __init__(self, id, club_id, name, element_type, code):

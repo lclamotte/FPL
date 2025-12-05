@@ -81,7 +81,8 @@ def get_player_image_url(code: int) -> str:
     return "https://resources.premierleague.com/premierleague/photos/players/110x140/Photo-Missing.png"
 
 def render_soccer_field(team_xi: List[Player], live_player_data_map: dict, 
-                       element_types_map: dict, team_name: str = "", club_fixture_status_map: dict = None):
+                       element_types_map: dict, team_name: str = "", 
+                       club_fixture_status_map: dict = None, bench: List[Player] = None):
     """Render a soccer field with players positioned on it using Plotly.
     
     Args:
@@ -143,6 +144,9 @@ def render_soccer_field(team_xi: List[Player], live_player_data_map: dict,
         goals = live_data.goals if live_data else 0
         assists = live_data.assists if live_data else 0
         minutes = live_data.minutes if live_data else 0
+        yellow_cards = getattr(live_data, 'yellow_cards', 0) if live_data else 0
+        red_cards = getattr(live_data, 'red_cards', 0) if live_data else 0
+        bonus = getattr(live_data, 'bonus', 0) if live_data else 0
         
         # Determine player's fixture status from their club
         player_fixture_finished = False
@@ -179,6 +183,12 @@ def render_soccer_field(team_xi: List[Player], live_player_data_map: dict,
             f"Assists: {assists}<br>"
             f"Minutes: {minutes}"
         )
+        if yellow_cards > 0:
+            hover_text += f"<br>Yellow Cards: {yellow_cards}"
+        if red_cards > 0:
+            hover_text += f"<br>Red Cards: {red_cards}"
+        if bonus > 0:
+            hover_text += f"<br>Bonus: {bonus}"
         
         fig.add_trace(go.Scatter(
             x=[x], y=[y],
@@ -189,13 +199,13 @@ def render_soccer_field(team_xi: List[Player], live_player_data_map: dict,
             showlegend=False
         ))
         
-        # Points Badge (Circle with number)
+        # Points Badge (Circle with number) - top right
         fig.add_trace(go.Scatter(
-            x=[x + 0.4], y=[y + 0.4],
+            x=[x + 0.45], y=[y + 0.45],
             mode='markers+text',
             marker=dict(size=24, color=color, line=dict(color='white', width=1)),
             text=[str(points)],
-            textfont=dict(color='white', size=12, family="Arial Black"),
+            textfont=dict(color='white', size=11, family="Arial Black"),
             hoverinfo='skip',
             showlegend=False
         ))
@@ -203,7 +213,7 @@ def render_soccer_field(team_xi: List[Player], live_player_data_map: dict,
         # Name Label
         display_name = player.name.split()[-1] if len(player.name) > 10 else player.name
         fig.add_trace(go.Scatter(
-            x=[x], y=[y - 0.7],
+            x=[x], y=[y - 0.75],
             mode='text',
             text=[display_name],
             textfont=dict(color='white', size=10, family="Arial"),
@@ -211,6 +221,65 @@ def render_soccer_field(team_xi: List[Player], live_player_data_map: dict,
             hoverinfo='skip',
             showlegend=False
         ))
+        
+        # Icons row below player name - goals, assists, cards
+        # Calculate total icons to center them
+        total_icons = min(goals, 3) + min(assists, 3) + yellow_cards + red_cards
+        if total_icons > 0:
+            icon_y = y - 1.1
+            icon_spacing = 0.28
+            # Center the icons
+            total_width = (total_icons - 1) * icon_spacing
+            icon_x_start = x - (total_width / 2)
+            icon_idx = 0
+            
+            # Goal icons (soccer balls) - ⚽
+            for g in range(min(goals, 3)):  # Cap at 3 to avoid overflow
+                fig.add_trace(go.Scatter(
+                    x=[icon_x_start + (icon_idx * icon_spacing)], y=[icon_y],
+                    mode='text',
+                    text=['⚽'],
+                    textfont=dict(size=16),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
+                icon_idx += 1
+            
+            # Assist icons (boot) - 👟
+            for a in range(min(assists, 3)):  # Cap at 3
+                fig.add_trace(go.Scatter(
+                    x=[icon_x_start + (icon_idx * icon_spacing)], y=[icon_y],
+                    mode='text',
+                    text=['👟'],
+                    textfont=dict(size=16),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
+                icon_idx += 1
+            
+            # Yellow cards - 🟨
+            for yc in range(yellow_cards):
+                fig.add_trace(go.Scatter(
+                    x=[icon_x_start + (icon_idx * icon_spacing)], y=[icon_y],
+                    mode='text',
+                    text=['🟨'],
+                    textfont=dict(size=16),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
+                icon_idx += 1
+            
+            # Red cards - 🟥
+            for rc in range(red_cards):
+                fig.add_trace(go.Scatter(
+                    x=[icon_x_start + (icon_idx * icon_spacing)], y=[icon_y],
+                    mode='text',
+                    text=['🟥'],
+                    textfont=dict(size=16),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
+                icon_idx += 1
 
     # Legend for Colors
     legend_items = [
@@ -239,16 +308,16 @@ def render_soccer_field(team_xi: List[Player], live_player_data_map: dict,
             font=dict(size=20, color='white')
         ),
         xaxis=dict(range=[-0.5, field_width + 0.5], showgrid=False, zeroline=False, visible=False),
-        yaxis=dict(range=[-0.5, field_height + 0.5], showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(range=[-1.0, field_height + 0.5], showgrid=False, zeroline=False, visible=False),
         plot_bgcolor='#1e293b',
         paper_bgcolor='#1e293b',
         width=500,
-        height=750, # Increased height to accommodate legend
-        margin=dict(l=10, r=10, t=40, b=80), # Increased bottom margin
+        height=800, # Increased height to accommodate icons
+        margin=dict(l=10, r=10, t=40, b=100), # Increased bottom margin
         legend=dict(
             orientation="h",
             yanchor="top",
-            y=-0.05, # Position below the chart
+            y=-0.02, # Position below the chart
             xanchor="center",
             x=0.5,
             font=dict(color="white")
@@ -256,10 +325,45 @@ def render_soccer_field(team_xi: List[Player], live_player_data_map: dict,
         dragmode=False
     )
     
+    # Add Bench if provided
+    if bench:
+        bench_items = []
+        for player in bench:
+            live_data = live_player_data_map.get(player.id)
+            points = live_data.points if live_data else 0
+            
+            # Determine color based on status
+            player_fixture_finished = False
+            player_fixture_started = False
+            if club_fixture_status_map and player.club_id in club_fixture_status_map:
+                player_fixture_finished = club_fixture_status_map[player.club_id].get('finished', False)
+                player_fixture_started = club_fixture_status_map[player.club_id].get('started', False)
+            
+            color = get_performance_color(player_fixture_finished, player_fixture_started)
+            
+            # Create a colored span for the player
+            # Note: Plotly annotations support a subset of HTML. 
+            # Color support in single annotation is limited. 
+            # Instead, let's just use text with the points.
+            # "Name (Pts)"
+            bench_items.append(f"{player.name} ({points})")
+            
+        bench_text = "<b>Bench:</b> " + ", ".join(bench_items)
+        
+        fig.add_annotation(
+            text=bench_text,
+            xref="paper", yref="paper",
+            x=0.5, y=-0.12, # Below the legend
+            showarrow=False,
+            font=dict(color="white", size=12),
+            align="center"
+        )
+
     return fig
 
 def display_field_in_streamlit(team_xi: List[Player], live_player_data_map: dict,
-                               element_types_map: dict, team_name: str = "", club_fixture_status_map: dict = None):
+                               element_types_map: dict, team_name: str = "", 
+                               club_fixture_status_map: dict = None, bench: List[Player] = None):
     """Helper function to display the field visualization in Streamlit."""
-    fig = render_soccer_field(team_xi, live_player_data_map, element_types_map, team_name, club_fixture_status_map)
+    fig = render_soccer_field(team_xi, live_player_data_map, element_types_map, team_name, club_fixture_status_map, bench)
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})

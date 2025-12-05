@@ -95,7 +95,10 @@ def load_all_data() -> Dict[str, Any]:
                 live_players[i].get('stats', {}).get('total_points', 0),
                 live_players[i].get('stats', {}).get('goals_scored', 0),
                 live_players[i].get('stats', {}).get('assists', 0),
-                live_players[i].get('stats', {}).get('minutes', 0)
+                live_players[i].get('stats', {}).get('minutes', 0),
+                live_players[i].get('stats', {}).get('yellow_cards', 0),
+                live_players[i].get('stats', {}).get('red_cards', 0),
+                live_players[i].get('stats', {}).get('bonus', 0)
             ) 
             for i in live_players
         }
