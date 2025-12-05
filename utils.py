@@ -125,9 +125,11 @@ def calculate_league_table(teams, fixtures):
                     'gw': gameweek,
                     'home': False
                 })
-
     # Convert to DataFrame
     df = pd.DataFrame(table.values())
+    
+    # Add team_id for later reference
+    df['team_id'] = list(table.keys())
     
     # Sort by Points, then GD, then GF
     df = df.sort_values(by=['Pts', 'GD', 'GF'], ascending=False).reset_index(drop=True)
@@ -137,6 +139,51 @@ def calculate_league_table(teams, fixtures):
     df.index.name = 'Pos'
     df = df.reset_index()
     
+    # Calculate previous position (position before last gameweek's fixtures)
+    # Get the most recent gameweek
+    completed_gws = set()
+    for fixture in fixtures:
+        if fixture['finished_provisional']:
+            completed_gws.add(fixture.get('event', 0))
+    
+    if completed_gws:
+        latest_gw = max(completed_gws)
+        
+        # Recalculate table excluding last gameweek
+        prev_table = {team['id']: {'Pts': 0, 'GD': 0, 'GF': 0} for team in teams}
+        
+        for fixture in fixtures:
+            if fixture['finished_provisional'] and fixture.get('event', 0) < latest_gw:
+                home_id = fixture['team_h']
+                away_id = fixture['team_a']
+                home_score = fixture['team_h_score']
+                away_score = fixture['team_a_score']
+                
+                prev_table[home_id]['GF'] += home_score
+                prev_table[home_id]['GD'] += (home_score - away_score)
+                prev_table[away_id]['GF'] += away_score
+                prev_table[away_id]['GD'] += (away_score - home_score)
+                
+                if home_score > away_score:
+                    prev_table[home_id]['Pts'] += 3
+                elif away_score > home_score:
+                    prev_table[away_id]['Pts'] += 3
+                else:
+                    prev_table[home_id]['Pts'] += 1
+                    prev_table[away_id]['Pts'] += 1
+        
+        # Sort previous table
+        prev_df = pd.DataFrame([(tid, d['Pts'], d['GD'], d['GF']) for tid, d in prev_table.items()],
+                              columns=['team_id', 'Pts', 'GD', 'GF'])
+        prev_df = prev_df.sort_values(by=['Pts', 'GD', 'GF'], ascending=False).reset_index(drop=True)
+        prev_df.index += 1
+        prev_positions = dict(zip(prev_df['team_id'], prev_df.index))
+        
+        # Add previous position to main df
+        df['PrevPos'] = df['team_id'].map(prev_positions)
+    else:
+        df['PrevPos'] = df['Pos']
+    
     # Keep FormDetails for tooltip generation, format Form for display
     def format_form(form_list):
         last_5 = form_list[-5:]
@@ -145,7 +192,7 @@ def calculate_league_table(teams, fixtures):
     df['Form'] = df['Form'].apply(format_form)
     
     # Reorder columns (keep FormDetails for later use)
-    df = df[['Pos', 'Logo', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form', 'FormDetails']]
+    df = df[['Pos', 'PrevPos', 'Logo', 'Team', 'P', 'W', 'D', 'L', 'GF', 'GA', 'GD', 'Pts', 'Form', 'FormDetails']]
     
     return df
 
